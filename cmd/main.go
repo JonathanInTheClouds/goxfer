@@ -9,7 +9,6 @@ import (
 )
 
 func main() {
-	// Define the flags for protocol, host, port, etc.
 	protocol := flag.String("protocol", "sftp", "Protocol to use for file transfer (e.g., sftp, scp, ftps)")
 	host := flag.String("host", "", "Remote server host")
 	port := flag.String("port", "22", "Remote server port")
@@ -18,23 +17,21 @@ func main() {
 	key := flag.String("key", "", "SSH Private Key file path (optional)")
 	srcPath := flag.String("srcPath", "", "Source file or directory to transfer")
 	destDir := flag.String("destDir", "", "Destination directory on the server")
+	maxParallel := flag.Int("parallel", 5, "Max number of parallel transfers")
 
-	// Parse the flags
 	flag.Parse()
 
-	// Validate the flags
-	if *host == "" || *port == "" || *srcPath == "" || *destDir == "" || *username == "" {
+	if *host == "" || *srcPath == "" || *destDir == "" || *username == "" {
 		fmt.Println("Error: host, username, source path, and destination directory must be specified.")
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	fmt.Printf("Starting transfer using %s protocol...\n", *protocol)
+	fmt.Printf("Starting transfer using %s protocol with up to %d parallel transfers...\n", *protocol, *maxParallel)
 
-	// Transfer the file or directory
 	switch *protocol {
 	case "sftp":
-		err := transfer.SFTPTransfer(*username, *password, *host, *port, *key, *srcPath, *destDir)
+		err := transfer.SFTPTransfer(*username, *password, *host, *port, *key, *srcPath, *destDir, *maxParallel)
 		if err != nil {
 			fmt.Printf("Error transferring: %v\n", err)
 			os.Exit(1)

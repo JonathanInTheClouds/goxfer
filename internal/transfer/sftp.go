@@ -1,34 +1,35 @@
 package transfer
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
-	"time"
-
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/pkg/sftp"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/term"
 )
 
-// SFTPTransfer handles file or directory transfer logic with SSH key or password authentication
-func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir string) error {
+// SFTPTransfer handles file or directory transfer logic with parallel support and passphrase-protected keys
+func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir string, maxParallel int) error {
 
 	var authMethod ssh.AuthMethod
 
 	if keyPath != "" {
-		// Load the private key file
-		key, err := ioutil.ReadFile(keyPath)
+		// Read the private key file
+		key, err := os.ReadFile(keyPath)
 		if err != nil {
 			return fmt.Errorf("unable to read SSH private key: %v", err)
 		}
 
-		// If the key is passphrase protected, ask for passphrase
+		// If the private key is passphrase protected, prompt for passphrase
 		fmt.Print("Enter passphrase for SSH key: ")
 		bytePassphrase, err := term.ReadPassword(int(syscall.Stdin))
 		if err != nil {
@@ -71,56 +72,71 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 	}
 	defer client.Close()
 
-	// Walk the source path (this works for both files and directories)
+	// Semaphore to limit concurrent transfers
+	sem := semaphore.NewWeighted(int64(maxParallel))
+	var wg sync.WaitGroup
+
+	// Walk through the source path for file transfers
 	err = filepath.Walk(srcPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return fmt.Errorf("error accessing path %s: %v", path, err)
 		}
 
-		// Relative path for file transfer destination
+		// Compute relative path for the destination
 		relativePath, err := filepath.Rel(srcPath, path)
 		if err != nil {
 			return fmt.Errorf("failed to compute relative path: %v", err)
 		}
 
-		// Full destination path on the remote server
 		remotePath := filepath.Join(destDir, relativePath)
 
 		if info.IsDir() {
-			// If it's a directory, create the directory on the remote server
+			// Create directories directly (without concurrency)
 			fmt.Printf("Creating directory: %s\n", remotePath)
 			if err := client.MkdirAll(remotePath); err != nil {
 				return fmt.Errorf("failed to create remote directory: %v", err)
 			}
 		} else {
-			// If it's a file, transfer it
-			fmt.Printf("Transferring file: %s to %s\n", path, remotePath)
+			wg.Add(1)
+			go func(path, remotePath string, info os.FileInfo) {
+				defer wg.Done()
 
-			// Open the local file
-			srcFile, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("failed to open local source file: %v", err)
-			}
-			defer srcFile.Close()
+				// Use context.Background() instead of nil
+				if err := sem.Acquire(context.Background(), 1); err != nil {
+					fmt.Printf("Failed to acquire semaphore for file %s: %v\n", path, err)
+					return
+				}
+				defer sem.Release(1)
 
-			// Create a progress bar for the file transfer
-			bar := progressbar.DefaultBytes(
-				info.Size(),
-				"Transferring",
-			)
+				fmt.Printf("Transferring file: %s to %s\n", path, remotePath)
 
-			// Create the destination file on the remote server
-			dstFile, err := client.Create(remotePath)
-			if err != nil {
-				return fmt.Errorf("failed to create destination file on remote server: %v", err)
-			}
-			defer dstFile.Close()
+				// Open the local file for reading
+				srcFile, err := os.Open(path)
+				if err != nil {
+					fmt.Printf("Failed to open local source file %s: %v\n", path, err)
+					return
+				}
+				defer srcFile.Close()
 
-			// Copy the file to the remote server with progress tracking
-			_, err = io.Copy(io.MultiWriter(dstFile, bar), srcFile)
-			if err != nil {
-				return fmt.Errorf("failed to copy file to remote server: %v", err)
-			}
+				bar := progressbar.DefaultBytes(info.Size(), "Transferring")
+
+				// Create the destination file on the remote server
+				dstFile, err := client.Create(remotePath)
+				if err != nil {
+					fmt.Printf("Failed to create destination file on remote server %s: %v\n", remotePath, err)
+					return
+				}
+				defer dstFile.Close()
+
+				// Copy the file to the remote server with progress tracking
+				_, err = io.Copy(io.MultiWriter(dstFile, bar), srcFile)
+				if err != nil {
+					fmt.Printf("Failed to copy file to remote server %s: %v\n", remotePath, err)
+					return
+				}
+
+				fmt.Printf("Successfully transferred: %s\n", path)
+			}(path, remotePath, info)
 		}
 
 		return nil
@@ -130,6 +146,7 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 		return fmt.Errorf("error walking through files: %v", err)
 	}
 
-	fmt.Printf("\nSuccessfully transferred %s to %s on %s\n", srcPath, destDir, host)
+	wg.Wait() // Wait for all transfers to complete
+	fmt.Printf("All transfers completed.\n")
 	return nil
 }
