@@ -18,8 +18,8 @@ import (
 	"golang.org/x/term"
 )
 
-// SFTPTransfer handles file or directory transfer logic with parallel support and passphrase-protected keys
-func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir string, maxParallel int) error {
+// SFTPTransfer handles file or directory transfer logic with parallel support, passphrase-protected keys, and retries for checksum mismatches
+func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir string, maxParallel, maxRetries int) error {
 
 	var authMethod ssh.AuthMethod
 
@@ -102,59 +102,72 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 			go func(path, remotePath string, info os.FileInfo) {
 				defer wg.Done()
 
-				// Use context.Background() instead of nil
-				if err := sem.Acquire(context.Background(), 1); err != nil {
-					fmt.Printf("Failed to acquire semaphore for file %s: %v\n", path, err)
-					return
-				}
-				defer sem.Release(1)
+				// Retry loop for checksum mismatches
+				for attempt := 1; attempt <= maxRetries+1; attempt++ {
+					if attempt > 1 {
+						fmt.Printf("Retrying transfer of %s (Attempt %d of %d)...\n", path, attempt, maxRetries)
+					}
 
-				fmt.Printf("Transferring file: %s to %s\n", path, remotePath)
+					// Use context.Background() instead of nil
+					if err := sem.Acquire(context.Background(), 1); err != nil {
+						fmt.Printf("Failed to acquire semaphore for file %s: %v\n", path, err)
+						return
+					}
+					defer sem.Release(1)
 
-				// Calculate the checksum of the local file before transfer
-				localChecksum, err := calculateLocalFileChecksum(path)
-				if err != nil {
-					fmt.Printf("Failed to calculate checksum for local file %s: %v\n", path, err)
-					return
-				}
+					fmt.Printf("Transferring file: %s to %s\n", path, remotePath)
 
-				// Open the local file for reading
-				srcFile, err := os.Open(path)
-				if err != nil {
-					fmt.Printf("Failed to open local source file %s: %v\n", path, err)
-					return
-				}
-				defer srcFile.Close()
+					// Calculate the checksum of the local file before transfer
+					localChecksum, err := calculateLocalFileChecksum(path)
+					if err != nil {
+						fmt.Printf("Failed to calculate checksum for local file %s: %v\n", path, err)
+						return
+					}
 
-				bar := progressbar.DefaultBytes(info.Size(), "Transferring")
+					// Open the local file for reading
+					srcFile, err := os.Open(path)
+					if err != nil {
+						fmt.Printf("Failed to open local source file %s: %v\n", path, err)
+						return
+					}
+					defer srcFile.Close()
 
-				// Create the destination file on the remote server
-				dstFile, err := client.Create(remotePath)
-				if err != nil {
-					fmt.Printf("Failed to create destination file on remote server %s: %v\n", remotePath, err)
-					return
-				}
-				defer dstFile.Close()
+					bar := progressbar.DefaultBytes(info.Size(), "Transferring")
 
-				// Copy the file to the remote server with progress tracking
-				_, err = io.Copy(io.MultiWriter(dstFile, bar), srcFile)
-				if err != nil {
-					fmt.Printf("Failed to copy file to remote server %s: %v\n", remotePath, err)
-					return
-				}
+					// Create the destination file on the remote server
+					dstFile, err := client.Create(remotePath)
+					if err != nil {
+						fmt.Printf("Failed to create destination file on remote server %s: %v\n", remotePath, err)
+						return
+					}
+					defer dstFile.Close()
 
-				// Calculate the checksum of the remote file after the transfer
-				remoteChecksum, err := calculateRemoteFileChecksum(client, remotePath)
-				if err != nil {
-					fmt.Printf("Failed to calculate checksum for remote file %s: %v\n", remotePath, err)
-					return
-				}
+					// Copy the file to the remote server with progress tracking
+					_, err = io.Copy(io.MultiWriter(dstFile, bar), srcFile)
+					if err != nil {
+						fmt.Printf("Failed to copy file to remote server %s: %v\n", remotePath, err)
+						return
+					}
 
-				// Compare the checksums
-				if localChecksum != remoteChecksum {
-					fmt.Printf("Checksum mismatch for file %s. Local: %s, Remote: %s\n", path, localChecksum, remoteChecksum)
-				} else {
-					fmt.Printf("Successfully transferred: %s (checksum verified)\n", path)
+					// Calculate the checksum of the remote file after the transfer
+					remoteChecksum, err := calculateRemoteFileChecksum(client, remotePath)
+					if err != nil {
+						fmt.Printf("Failed to calculate checksum for remote file %s: %v\n", remotePath, err)
+						return
+					}
+
+					// Compare the checksums
+					if localChecksum == remoteChecksum {
+						fmt.Printf("Successfully transferred: %s (checksum verified)\n", path)
+						return
+					} else {
+						fmt.Printf("Checksum mismatch for file %s. Local: %s, Remote: %s\n", path, localChecksum, remoteChecksum)
+					}
+
+					// If this was the last attempt, log failure
+					if attempt == maxRetries+1 {
+						fmt.Printf("Failed to transfer %s after %d attempts\n", path, maxRetries)
+					}
 				}
 			}(path, remotePath, info)
 		}
