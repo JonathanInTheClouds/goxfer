@@ -3,22 +3,55 @@ package transfer
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
 
+	"syscall"
+
 	"github.com/pkg/sftp"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/term"
 )
 
-// SFTPTransfer handles file or directory transfer logic
-func SFTPTransfer(username, password, host, port, srcPath, destDir string) error {
+// SFTPTransfer handles file or directory transfer logic with SSH key or password authentication
+func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir string) error {
+
+	var authMethod ssh.AuthMethod
+
+	if keyPath != "" {
+		// Load the private key file
+		key, err := ioutil.ReadFile(keyPath)
+		if err != nil {
+			return fmt.Errorf("unable to read SSH private key: %v", err)
+		}
+
+		// If the key is passphrase protected, ask for passphrase
+		fmt.Print("Enter passphrase for SSH key: ")
+		bytePassphrase, err := term.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			return fmt.Errorf("failed to read passphrase: %v", err)
+		}
+		fmt.Println()
+
+		// Parse the private key using the passphrase
+		signer, err := ssh.ParsePrivateKeyWithPassphrase(key, bytePassphrase)
+		if err != nil {
+			return fmt.Errorf("unable to parse private key: %v", err)
+		}
+
+		authMethod = ssh.PublicKeys(signer)
+	} else {
+		// Fallback to password-based authentication
+		authMethod = ssh.Password(password)
+	}
 
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
+			authMethod,
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         5 * time.Second,
