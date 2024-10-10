@@ -15,39 +15,34 @@ func main() {
 	port := flag.String("port", "22", "Remote server port")
 	username := flag.String("username", "", "SSH Username")
 	password := flag.String("password", "", "SSH Password")
-	file := flag.String("file", "", "File to transfer")
-	dest := flag.String("dest", "", "Destination path on the server")
+	srcPath := flag.String("srcPath", "", "Source file or directory to transfer")
+	destDir := flag.String("destDir", "", "Destination directory on the server")
 
 	// Parse the flags
 	flag.Parse()
 
 	// Validate the flags
-	if *host == "" || *port == "" || *file == "" || *dest == "" || *username == "" || *password == "" {
-		fmt.Println("Error: host, username, password, file, and destination must be specified.")
+	if *host == "" || *port == "" || *srcPath == "" || *destDir == "" || *username == "" || *password == "" {
+		fmt.Println("Error: host, username, password, source path, and destination directory must be specified.")
 		flag.Usage()
 		os.Exit(1)
 	}
-	fmt.Printf("Starting transfer using %s protocol...\n", *protocol)
-	fmt.Printf("Transferring file: %s to %s on %s\n", *file, *dest, *host)
 
-	// Call the transfer function
+	fmt.Printf("Starting transfer using %s protocol...\n", *protocol)
+
+	// Check if the source path exists
+	_, err := os.Stat(*srcPath)
+	if os.IsNotExist(err) {
+		fmt.Printf("Error: source path %s does not exist.\n", *srcPath)
+		os.Exit(1)
+	}
+
+	// Transfer the file or directory
 	switch *protocol {
 	case "sftp":
-		err := transfer.SFTPTransfer(*username, *password, *host, *port, *file, *dest)
+		err := transfer.SFTPTransfer(*username, *password, *host, *port, *srcPath, *destDir)
 		if err != nil {
-			fmt.Printf("Error transferring file: %v\n", err)
-			os.Exit(1)
-		}
-	case "scp":
-		err := transfer.SCPTransfer(*file, *host, *dest)
-		if err != nil {
-			fmt.Printf("Error transferring file: %v\n", err)
-			os.Exit(1)
-		}
-	case "ftps":
-		err := transfer.FTPSTransfer(*file, *host, *dest)
-		if err != nil {
-			fmt.Printf("Error transferring file: %v\n", err)
+			fmt.Printf("Error transferring: %v\n", err)
 			os.Exit(1)
 		}
 	default:
@@ -55,6 +50,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("File transfer complete.")
-	os.Exit(0)
+	fmt.Println("Transfer complete.")
 }
