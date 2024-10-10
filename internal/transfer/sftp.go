@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -110,6 +111,13 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 
 				fmt.Printf("Transferring file: %s to %s\n", path, remotePath)
 
+				// Calculate the checksum of the local file before transfer
+				localChecksum, err := calculateLocalFileChecksum(path)
+				if err != nil {
+					fmt.Printf("Failed to calculate checksum for local file %s: %v\n", path, err)
+					return
+				}
+
 				// Open the local file for reading
 				srcFile, err := os.Open(path)
 				if err != nil {
@@ -135,7 +143,19 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 					return
 				}
 
-				fmt.Printf("Successfully transferred: %s\n", path)
+				// Calculate the checksum of the remote file after the transfer
+				remoteChecksum, err := calculateRemoteFileChecksum(client, remotePath)
+				if err != nil {
+					fmt.Printf("Failed to calculate checksum for remote file %s: %v\n", remotePath, err)
+					return
+				}
+
+				// Compare the checksums
+				if localChecksum != remoteChecksum {
+					fmt.Printf("Checksum mismatch for file %s. Local: %s, Remote: %s\n", path, localChecksum, remoteChecksum)
+				} else {
+					fmt.Printf("Successfully transferred: %s (checksum verified)\n", path)
+				}
 			}(path, remotePath, info)
 		}
 
@@ -149,4 +169,36 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 	wg.Wait() // Wait for all transfers to complete
 	fmt.Printf("All transfers completed.\n")
 	return nil
+}
+
+// Calculate the SHA256 checksum for a local file
+func calculateLocalFileChecksum(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open local file for checksum: %v", err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate checksum for local file: %v", err)
+	}
+
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+// Calculate the SHA256 checksum for a remote file
+func calculateRemoteFileChecksum(client *sftp.Client, remotePath string) (string, error) {
+	file, err := client.Open(remotePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open remote file for checksum: %v", err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate checksum for remote file: %v", err)
+	}
+
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
