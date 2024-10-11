@@ -19,6 +19,7 @@ func main() {
 	destDir := flag.String("destDir", "", "Destination directory on the server")
 	maxParallel := flag.Int("parallel", 5, "Max number of parallel transfers")
 	maxRetries := flag.Int("retries", 3, "Max number of retry attempts in case of checksum mismatch")
+	scpMkdir := flag.Bool("scp-mkdir", false, "Create destination directory if it doesn't exist (only for SCP)")
 
 	flag.Parse()
 
@@ -33,6 +34,12 @@ func main() {
 	switch *protocol {
 	case "sftp":
 		err := transfer.SFTPTransfer(*username, *password, *host, *port, *key, *srcPath, *destDir, *maxParallel, *maxRetries)
+		if err != nil {
+			fmt.Printf("Error transferring: %v\n", err)
+			os.Exit(1)
+		}
+	case "scp":
+		err := transfer.SCPTransfer(*username, *password, *host, *port, *key, *srcPath, *destDir, *scpMkdir)
 		if err != nil {
 			fmt.Printf("Error transferring: %v\n", err)
 			os.Exit(1)
