@@ -7,9 +7,9 @@ RUN apt-get update && apt-get install -y openssh-server
 # Create SSH directory
 RUN mkdir /var/run/sshd
 
-# Set up a user for SFTP with password authentication
-RUN useradd -m -d /home/sftpuser -s /bin/bash sftpuser && \
-    echo "sftpuser:sftppassword" | chpasswd
+# Set up a user for SFTP and SCP with password authentication
+RUN useradd -m -d /home/transferuser -s /bin/bash transferuser && \
+    echo "transferuser:transferpassword" | chpasswd
 
 # Allow password authentication
 RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
