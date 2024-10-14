@@ -92,9 +92,9 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 		remotePath := filepath.Join(destDir, relativePath)
 
 		if info.IsDir() {
-			// Create directories directly (without concurrency)
-			fmt.Printf("Creating directory: %s\n", remotePath)
-			if err := client.MkdirAll(remotePath); err != nil {
+			dirPath := filepath.Dir(remotePath) // Only create directories
+			fmt.Printf("Creating directory: %s\n", dirPath)
+			if err := client.MkdirAll(dirPath); err != nil {
 				return fmt.Errorf("failed to create remote directory: %v", err)
 			}
 		} else {
@@ -133,6 +133,13 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 					defer srcFile.Close()
 
 					bar := progressbar.DefaultBytes(info.Size(), "Transferring")
+
+					// Ensure the parent directory exists
+					parentDir := filepath.Dir(remotePath)
+					if err := client.MkdirAll(parentDir); err != nil {
+						fmt.Printf("Failed to create remote directory %s: %v\n", parentDir, err)
+						return
+					}
 
 					// Create the destination file on the remote server
 					dstFile, err := client.Create(remotePath)
