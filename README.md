@@ -46,16 +46,16 @@ This will create a binary named `goxfer` in your project directory.
 To transfer files using GoXfer, you can use the following command:
 
 ```bash
-./goxfer --protocol=sftp --host=localhost --port=2222 --username=sftpuser --key=/path/to/private_key --srcPath=/path/to/local/files --destDir=/remote/destination/path --parallel=5 --retries=3
+./goxfer --protocol=sftp --host=localhost --port=2222 --username=transferuser --key=/path/to/private_key --srcPath=/path/to/local/files --destDir=/remote/destination/path --parallel=5 --retries=3
 ```
 
 ### Example
 
 ```bash
-./goxfer --protocol=sftp --host=localhost --port=2222 --username=sftpuser --key=/home/jonathan/.ssh/id_rsa --srcPath=./sftp-container --destDir=/home/sftpuser/sftp-container --parallel=5 --retries=3
+./goxfer --protocol=sftp --host=localhost --port=2222 --username=transferuser --key=/home/jonathan/.ssh/id_rsa --srcPath=./file-transfer-container --destDir=/home/transferuser/file-transfer-container --parallel=5 --retries=3
 ```
 
-This example transfers the files from the `./sftp-container` folder to the `/home/sftpuser/sftp-container` folder on the remote server using **SFTP**.
+This example transfers the files from the `./file-transfer-container` folder to the `/home/transferuser/file-transfer-container` folder on the remote server using **SFTP**.
 
 ## Options
 
@@ -82,17 +82,17 @@ You can use a Dockerized SFTP server to test the file transfer functionality. He
 
 ### Build and Run the Docker SFTP Server
 
-In the `sftp-container` folder, run the following commands to build and launch the SFTP server:
+In the `file-transfer-container` folder, run the following commands to build and launch the SFTP server:
 
 ```bash
-docker build -t sftp-server .
-docker run -p 2222:22 -d sftp-server
+docker build -t file-transfer-test .
+docker run -p 2222:22 -d file-transfer-test
 ```
 
 ### Example Transfer Using the Dockerized SFTP Server
 
 ```bash
-./goxfer --protocol=sftp --host=localhost --port=2222 --username=sftpuser --key=/path/to/private_key --srcPath=/path/to/local/files --destDir=/remote/destination/path --parallel=5 --retries=3
+./goxfer --protocol=sftp --host=localhost --port=2222 --username=transferuser --key=/path/to/private_key --srcPath=/path/to/local/files --destDir=/home/transferuser/file-transfer-container --parallel=5 --retries=3
 ```
 
 This will transfer files to the Docker container acting as the SFTP server.
