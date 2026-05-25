@@ -35,16 +35,20 @@ func RunRelay(addr string) error {
 	if err != nil {
 		return fmt.Errorf("relay listen: %w", err)
 	}
-	defer l.Close()
 	fmt.Printf("Relay listening on %s\n", addr)
+	return Serve(l)
+}
 
+// Serve runs the relay on an already-bound listener. Useful for testing.
+func Serve(l net.Listener) error {
+	defer l.Close()
 	var mu sync.Mutex
 	pending := map[string]*pendingRelay{}
 
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			return fmt.Errorf("relay accept: %w", err)
+			return nil
 		}
 		go handleRelayConn(conn, &mu, pending)
 	}
