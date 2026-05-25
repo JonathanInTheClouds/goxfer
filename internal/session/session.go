@@ -105,6 +105,9 @@ func newSession(conn net.Conn, identity *crypto.Identity, initiator bool) (*Secu
 }
 
 func (s *SecureSession) SendMessage(msg protocol.Message) error {
+	chunkData := msg.Chunk
+	msg.Chunk = nil
+
 	payload, err := protocol.EncodeMessage(msg)
 	if err != nil {
 		return err
@@ -120,6 +123,23 @@ func (s *SecureSession) SendMessage(msg protocol.Message) error {
 	if _, err := s.conn.Write(frame); err != nil {
 		return fmt.Errorf("write encrypted frame: %w", err)
 	}
+
+	// For file_chunk, send raw binary data as a second encrypted frame.
+	// This avoids the ~33% base64 overhead of JSON encoding.
+	if msg.Type == protocol.MessageTypeFileChunk {
+		ciphertext, err := s.send.Encrypt(nil, nil, chunkData)
+		if err != nil {
+			return fmt.Errorf("encrypt chunk data: %w", err)
+		}
+		frame, err := protocol.EncodeFrame(ciphertext)
+		if err != nil {
+			return err
+		}
+		if _, err := s.conn.Write(frame); err != nil {
+			return fmt.Errorf("write chunk data frame: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -132,7 +152,24 @@ func (s *SecureSession) ReceiveMessage() (protocol.Message, error) {
 	if err != nil {
 		return protocol.Message{}, fmt.Errorf("decrypt message: %w", err)
 	}
-	return protocol.DecodeMessage(plaintext)
+	msg, err := protocol.DecodeMessage(plaintext)
+	if err != nil {
+		return protocol.Message{}, err
+	}
+
+	// For file_chunk, read the second raw binary frame.
+	if msg.Type == protocol.MessageTypeFileChunk {
+		frame, err := protocol.DecodeFrame(s.conn)
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("read chunk data frame: %w", err)
+		}
+		msg.Chunk, err = s.receive.Decrypt(nil, nil, frame)
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("decrypt chunk data: %w", err)
+		}
+	}
+
+	return msg, nil
 }
 
 func (s *SecureSession) Close() error {

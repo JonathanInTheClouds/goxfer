@@ -22,7 +22,7 @@ type Message struct {
 	Name     string `json:"name,omitempty"`
 	Size     int64  `json:"size,omitempty"`
 	Index    int    `json:"index,omitempty"`
-	Chunk    []byte `json:"chunk,omitempty"`
+	Chunk    []byte `json:"-"`
 	Checksum string `json:"checksum,omitempty"`
 }
 
@@ -55,8 +55,8 @@ func ValidateMessage(message Message) error {
 			return errors.New("file_start requires file_id, name, and size >= -1")
 		}
 	case MessageTypeFileChunk:
-		if message.FileID == "" || len(message.Chunk) == 0 || message.Index < 0 {
-			return errors.New("file_chunk requires file_id, chunk bytes, and non-negative index")
+		if message.FileID == "" || message.Index < 0 {
+			return errors.New("file_chunk requires file_id and non-negative index")
 		}
 	case MessageTypeFileComplete:
 		if message.FileID == "" {
