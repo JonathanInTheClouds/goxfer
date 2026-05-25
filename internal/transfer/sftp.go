@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,12 +15,13 @@ import (
 	"github.com/pkg/sftp"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/term"
 )
 
 // SFTPTransfer handles file or directory transfer logic with parallel support, passphrase-protected keys, and retries for checksum mismatches
-func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir string, maxParallel, maxRetries int) error {
+func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir, knownHostsPath string, maxParallel, maxRetries int, insecure bool) error {
 
 	var authMethod ssh.AuthMethod
 
@@ -50,12 +52,36 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 		authMethod = ssh.Password(password)
 	}
 
+	var hostKeyCallback ssh.HostKeyCallback
+	if insecure {
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+	} else {
+		expandedPath := knownHostsPath
+		if len(knownHostsPath) > 1 && knownHostsPath[:2] == "~/" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("failed to resolve home directory: %v", err)
+			}
+			expandedPath = filepath.Join(home, knownHostsPath[2:])
+		}
+		cb, err := knownhosts.New(expandedPath)
+		if err != nil {
+			return fmt.Errorf("failed to load known_hosts from %s: %v\nUse --insecure to skip host key verification", expandedPath, err)
+		}
+		hostKeyCallback = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			if err := cb(hostname, remote, key); err != nil {
+				return fmt.Errorf("host key verification failed for %s: %v\nRun: ssh-keyscan -p %s %s >> %s", hostname, err, port, host, expandedPath)
+			}
+			return nil
+		}
+	}
+
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			authMethod,
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         5 * time.Second,
 	}
 
@@ -90,6 +116,9 @@ func SFTPTransfer(username, password, host, port, keyPath, srcPath, destDir stri
 		}
 
 		remotePath := filepath.Join(destDir, relativePath)
+		if relativePath == "." {
+			remotePath = filepath.Join(destDir, filepath.Base(srcPath))
+		}
 
 		if info.IsDir() {
 			dirPath := filepath.Dir(remotePath) // Only create directories

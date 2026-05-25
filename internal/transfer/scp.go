@@ -8,11 +8,11 @@ import (
 )
 
 // SCPTransfer handles file transfer using the SCP protocol and creates the destination directory if needed
-func SCPTransfer(username, password, host, port, keyPath, srcPath, destDir string, createDestDir bool) error {
+func SCPTransfer(username, password, host, port, keyPath, srcPath, destDir string, createDestDir, insecure bool) error {
 	// If createDestDir is true, attempt to create the directory on the remote server
 	if createDestDir {
 		fmt.Printf("Creating remote directory: %s\n", destDir)
-		if err := createRemoteDir(username, host, port, keyPath, destDir); err != nil {
+		if err := createRemoteDir(username, host, port, keyPath, destDir, insecure); err != nil {
 			return fmt.Errorf("failed to create remote directory: %v", err)
 		}
 	}
@@ -25,6 +25,10 @@ func SCPTransfer(username, password, host, port, keyPath, srcPath, destDir strin
 	// Build the SCP command
 	scpCmd := []string{
 		"-P", port,
+	}
+
+	if insecure {
+		scpCmd = append(scpCmd, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null")
 	}
 
 	// Add the private key if available
@@ -49,9 +53,13 @@ func SCPTransfer(username, password, host, port, keyPath, srcPath, destDir strin
 }
 
 // createRemoteDir creates the specified directory on the remote server using SSH
-func createRemoteDir(username, host, port, keyPath, destDir string) error {
+func createRemoteDir(username, host, port, keyPath, destDir string, insecure bool) error {
 	sshCmd := []string{
 		"-p", port,
+	}
+
+	if insecure {
+		sshCmd = append(sshCmd, "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null")
 	}
 
 	if keyPath != "" {

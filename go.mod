@@ -7,6 +7,9 @@ toolchain go1.22.8
 require golang.org/x/sync v0.8.0
 
 require (
+	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/jlaffaye/ftp v0.2.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/pkg/sftp v1.13.6 // indirect
