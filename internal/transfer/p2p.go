@@ -46,8 +46,9 @@ func P2PSend(srcPath, relayAddr string) error {
 			return fmt.Errorf("start bore.pub tunnel: %w", err)
 		}
 
-		fmt.Printf("Share this with the receiver:\n\n  goxfer receive %s <destDir>\n\n", publicAddr)
-		fmt.Println("Waiting for receiver to connect...")
+		printReceiverCommand(fmt.Sprintf("goxfer receive %s <dest-dir>", publicAddr))
+		fmt.Printf("Your fingerprint : %s\n", identity.Fingerprint())
+		fmt.Println("\nWaiting for receiver to connect...")
 
 		sess, err = listener.Accept()
 		if err != nil {
@@ -60,8 +61,9 @@ func P2PSend(srcPath, relayAddr string) error {
 			return fmt.Errorf("connect to relay: %w", err)
 		}
 
-		fmt.Printf("Share this with the receiver:\n\n  goxfer receive %s <destDir> --code=%s\n\n", relayAddr, code)
-		fmt.Println("Waiting for receiver to connect...")
+		printReceiverCommand(fmt.Sprintf("goxfer receive %s <dest-dir> --code=%s", relayAddr, code))
+		fmt.Printf("Your fingerprint : %s\n", identity.Fingerprint())
+		fmt.Println("\nWaiting for receiver to connect...")
 
 		if err := tunnel.WaitForReceiver(conn); err != nil {
 			return fmt.Errorf("wait for receiver: %w", err)
@@ -74,7 +76,7 @@ func P2PSend(srcPath, relayAddr string) error {
 	}
 	defer sess.Close()
 
-	fmt.Printf("Peer connected. Sender fingerprint: %s\n", identity.Fingerprint())
+	fmt.Print("Receiver connected!\n\n")
 
 	info, err := os.Stat(srcPath)
 	if err != nil {
@@ -98,6 +100,8 @@ func P2PReceive(addr, destDir, code string) error {
 
 	var sess *session.SecureSession
 
+	fmt.Printf("Connecting to sender at %s...\n", addr)
+
 	if code == "" {
 		// bore.pub mode: direct dial
 		sess, err = session.Dial(addr, identity)
@@ -116,6 +120,8 @@ func P2PReceive(addr, destDir, code string) error {
 		}
 	}
 	defer sess.Close()
+
+	fmt.Printf("Connected. Your fingerprint: %s\n\n", identity.Fingerprint())
 
 	if err := os.MkdirAll(destDir, 0o750); err != nil {
 		return fmt.Errorf("create destination directory: %w", err)
@@ -150,10 +156,12 @@ func sendSingleFile(sess *session.SecureSession, path string, info os.FileInfo) 
 	}
 	defer f.Close()
 
-	bar := progressbar.DefaultBytes(info.Size(), "Sending")
+	fmt.Printf("Sending  %s  (%s)\n", filepath.Base(path), formatBytes(info.Size()))
+	bar := newBar(info.Size())
 	if err := sendChunks(sess, fileID, io.TeeReader(f, bar)); err != nil {
 		return err
 	}
+	bar.Finish()
 
 	if err := sess.SendMessage(protocol.Message{
 		Type:   protocol.MessageTypeFileComplete,
@@ -179,7 +187,7 @@ func sendSingleFile(sess *session.SecureSession, path string, info os.FileInfo) 
 		return fmt.Errorf("checksum mismatch confirmed by receiver")
 	}
 
-	fmt.Printf("Successfully sent: %s (checksum verified)\n", path)
+	fmt.Printf("\n✓  Sent successfully — checksum verified\n")
 	return nil
 }
 
@@ -240,10 +248,12 @@ func sendDirectory(sess *session.SecureSession, srcPath string) error {
 		pw.CloseWithError(archiveErr)
 	}()
 
-	bar := progressbar.DefaultBytes(-1, "Sending")
+	fmt.Printf("Sending  %s/  (streaming)\n", filepath.Base(srcPath))
+	bar := newBar(-1)
 	if err := sendChunks(sess, fileID, io.TeeReader(io.TeeReader(pr, hasher), bar)); err != nil {
 		return err
 	}
+	bar.Finish()
 
 	if archiveErr != nil {
 		return fmt.Errorf("archive directory: %w", archiveErr)
@@ -274,7 +284,7 @@ func sendDirectory(sess *session.SecureSession, srcPath string) error {
 		return fmt.Errorf("checksum mismatch confirmed by receiver")
 	}
 
-	fmt.Printf("Successfully sent directory: %s (checksum verified)\n", srcPath)
+	fmt.Printf("\n✓  Sent successfully — checksum verified\n")
 	return nil
 }
 
@@ -332,8 +342,19 @@ func receiveOneFile(sess *session.SecureSession, destDir string, start protocol.
 	tmpPath := tmp.Name()
 	defer func() { os.Remove(tmpPath) }()
 
+	isArchive := strings.HasSuffix(start.Name, ".tar.gz")
+	label := start.Name
+	if isArchive {
+		label = strings.TrimSuffix(start.Name, ".tar.gz") + "/"
+	}
+	if start.Size > 0 {
+		fmt.Printf("Receiving  %s  (%s)\n", label, formatBytes(start.Size))
+	} else {
+		fmt.Printf("Receiving  %s  (streaming)\n", label)
+	}
+
 	hasher := sha256.New()
-	bar := progressbar.DefaultBytes(start.Size, "Receiving")
+	bar := newBar(start.Size)
 
 	var nextIndex int
 	for {
@@ -390,13 +411,16 @@ func receiveOneFile(sess *session.SecureSession, destDir string, start protocol.
 				return fmt.Errorf("send checksum ack: %w", err)
 			}
 
+			bar.Finish()
+			fmt.Println()
+
 			// Move/extract to final destination
-			isArchive := strings.HasSuffix(start.Name, ".tar.gz")
 			if isArchive {
-				fmt.Printf("\nExtracting %s...\n", start.Name)
+				fmt.Printf("Extracting %s...\n", start.Name)
 				if err := extractTarGz(tmpPath, destDir); err != nil {
 					return fmt.Errorf("extract archive: %w", err)
 				}
+				fmt.Printf("✓  Saved to %s — checksum verified\n", destDir)
 			} else {
 				destPath := filepath.Join(destDir, filepath.Base(start.Name))
 				if err := os.Rename(tmpPath, destPath); err != nil {
@@ -405,7 +429,7 @@ func receiveOneFile(sess *session.SecureSession, destDir string, start protocol.
 						return fmt.Errorf("save file: %w", err2)
 					}
 				}
-				fmt.Printf("\nSuccessfully received: %s (checksum verified)\n", destPath)
+				fmt.Printf("✓  Saved to %s — checksum verified\n", destPath)
 			}
 			return nil
 
@@ -476,7 +500,6 @@ func extractTarGz(srcPath, destDir string) error {
 		}
 	}
 
-	fmt.Printf("Extracted to: %s\n", destDir)
 	return nil
 }
 
@@ -501,4 +524,41 @@ func randomFileID() (string, error) {
 		return "", fmt.Errorf("generate file id: %w", err)
 	}
 	return hex.EncodeToString(raw[:]), nil
+}
+
+// printReceiverCommand prints a clearly bordered block with the command
+// the receiver needs to run.
+func printReceiverCommand(cmd string) {
+	border := strings.Repeat("─", len(cmd)+4)
+	fmt.Printf("\n┌%s┐\n│  %s  │\n└%s┘\n\n", border, cmd, border)
+	fmt.Println("  Run the command above on the receiving machine.")
+}
+
+// newBar returns a progress bar suitable for file transfer output.
+func newBar(size int64) *progressbar.ProgressBar {
+	return progressbar.NewOptions64(size,
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetItsString("B"),
+		progressbar.OptionSetPredictTime(true),
+		progressbar.OptionSetElapsedTime(true),
+		progressbar.OptionShowElapsedTimeOnFinish(),
+		progressbar.OptionUseIECUnits(true),
+		progressbar.OptionFullWidth(),
+	)
+}
+
+// formatBytes returns a human-readable byte size string.
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
