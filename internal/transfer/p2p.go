@@ -48,7 +48,7 @@ func P2PSend(srcPath, relayAddr string, resume bool) error {
 			return fmt.Errorf("start bore.pub tunnel: %w", err)
 		}
 
-		printReceiverCommand(fmt.Sprintf("goxfer receive %s <dest-dir>", publicAddr), resume)
+		printReceiverCommand("goxfer receive", resume, "", publicAddr)
 		fmt.Printf("Your fingerprint : %s\n", identity.Fingerprint())
 		fmt.Println("\nWaiting for receiver to connect...")
 
@@ -62,7 +62,7 @@ func P2PSend(srcPath, relayAddr string, resume bool) error {
 			return fmt.Errorf("connect to relay: %w", err)
 		}
 
-		printReceiverCommand(fmt.Sprintf("goxfer receive %s <dest-dir> --code=%s", relayAddr, code), resume)
+		printReceiverCommand("goxfer receive", resume, code, relayAddr)
 		fmt.Printf("Your fingerprint : %s\n", identity.Fingerprint())
 		fmt.Println("\nWaiting for receiver to connect...")
 
@@ -704,11 +704,17 @@ func randomFileID() (string, error) {
 }
 
 // printReceiverCommand prints a clearly bordered block with the command
-// the receiver needs to run.
-func printReceiverCommand(cmd string, resume bool) {
+// the receiver needs to run. Flags are placed before positional arguments
+// so Go's flag parser picks them up correctly.
+func printReceiverCommand(base string, resume bool, code, addr string) {
+	cmd := base
+	if code != "" {
+		cmd += " --code=" + code
+	}
 	if resume {
 		cmd += " --resume"
 	}
+	cmd += " " + addr + " <dest-dir>"
 	border := strings.Repeat("─", len(cmd)+4)
 	fmt.Printf("\n┌%s┐\n│  %s  │\n└%s┘\n\n", border, cmd, border)
 	fmt.Println("  Run the command above on the receiving machine.")
