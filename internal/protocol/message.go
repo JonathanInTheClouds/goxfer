@@ -13,6 +13,7 @@ const (
 	MessageTypeFileChunk    = "file_chunk"
 	MessageTypeFileComplete = "file_complete"
 	MessageTypeFileChecksum = "file_checksum"
+	MessageTypeFileResume   = "file_resume"
 	MessageTypeReady        = "ready"
 )
 
@@ -24,6 +25,8 @@ type Message struct {
 	Index    int    `json:"index,omitempty"`
 	Chunk    []byte `json:"-"`
 	Checksum string `json:"checksum,omitempty"`
+	Resume   bool   `json:"resume,omitempty"` // file_start: sender supports resume handshake
+	Offset   int64  `json:"offset,omitempty"` // file_resume: byte offset to resume from
 }
 
 func EncodeMessage(message Message) ([]byte, error) {
@@ -65,6 +68,10 @@ func ValidateMessage(message Message) error {
 	case MessageTypeFileChecksum:
 		if message.FileID == "" || message.Checksum == "" {
 			return errors.New("file_checksum requires file_id and checksum")
+		}
+	case MessageTypeFileResume:
+		if message.FileID == "" || message.Offset < 0 {
+			return errors.New("file_resume requires file_id and non-negative offset")
 		}
 	case MessageTypeReady:
 		// no fields required

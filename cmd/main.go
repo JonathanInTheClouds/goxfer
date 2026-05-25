@@ -86,8 +86,9 @@ func main() {
 func runSend(args []string) {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	relayAddr := fs.String("relay", "", "Self-hosted relay address (default: use bore.pub)")
+	resume := fs.Bool("resume", false, "Enable resumable transfer (both sides must use this flag)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: goxfer send [--relay=host:port] <srcPath>")
+		fmt.Fprintln(os.Stderr, "Usage: goxfer send [--relay=host:port] [--resume] <srcPath>")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -95,7 +96,7 @@ func runSend(args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if err := transfer.P2PSend(fs.Arg(0), *relayAddr); err != nil {
+	if err := transfer.P2PSend(fs.Arg(0), *relayAddr, *resume); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -104,8 +105,9 @@ func runSend(args []string) {
 func runReceive(args []string) {
 	fs := flag.NewFlagSet("receive", flag.ExitOnError)
 	code := fs.String("code", "", "Session code for self-hosted relay (not needed for bore.pub)")
+	resume := fs.Bool("resume", false, "Enable resumable transfer (both sides must use this flag)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: goxfer receive [--code=<code>] <address> <destDir>")
+		fmt.Fprintln(os.Stderr, "Usage: goxfer receive [--code=<code>] [--resume] <address> <destDir>")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -113,7 +115,7 @@ func runReceive(args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if err := transfer.P2PReceive(fs.Arg(0), fs.Arg(1), *code); err != nil {
+	if err := transfer.P2PReceive(fs.Arg(0), fs.Arg(1), *code, *resume); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

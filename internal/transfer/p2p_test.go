@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/JonathanInTheClouds/goxfer/internal/crypto"
+	"github.com/JonathanInTheClouds/goxfer/internal/protocol"
 	"github.com/JonathanInTheClouds/goxfer/internal/session"
 )
 
@@ -80,12 +81,12 @@ func TestP2P_SingleFile(t *testing.T) {
 			sendErr <- err
 			return
 		}
-		err = sendSingleFile(senderSess, srcPath, info)
+		err = sendSingleFile(senderSess, srcPath, info, false)
 		senderSess.Close() // signal EOF to receiver
 		sendErr <- err
 	}()
 	go func() {
-		recvErr <- receiveFiles(receiverSess, destDir)
+		recvErr <- receiveFiles(receiverSess, destDir, false)
 	}()
 
 	if err := <-sendErr; err != nil {
@@ -133,12 +134,12 @@ func TestP2P_ChecksumVerification(t *testing.T) {
 
 	go func() {
 		info, _ := os.Stat(srcPath)
-		err := sendSingleFile(senderSess, srcPath, info)
+		err := sendSingleFile(senderSess, srcPath, info, false)
 		senderSess.Close()
 		sendErr <- err
 	}()
 	go func() {
-		recvErr <- receiveFiles(receiverSess, destDir)
+		recvErr <- receiveFiles(receiverSess, destDir, false)
 	}()
 
 	if err := <-sendErr; err != nil {
@@ -187,7 +188,7 @@ func TestP2P_Directory(t *testing.T) {
 		sendErr <- err
 	}()
 	go func() {
-		recvErr <- receiveFiles(receiverSess, destDir)
+		recvErr <- receiveFiles(receiverSess, destDir, false)
 	}()
 
 	if err := <-sendErr; err != nil {
@@ -207,6 +208,85 @@ func TestP2P_Directory(t *testing.T) {
 		if string(got) != wantContent {
 			t.Fatalf("%s: got %q, want %q", name, got, wantContent)
 		}
+	}
+}
+
+func TestP2P_Resume(t *testing.T) {
+	// Simulate a resume: pre-seed a partial state file so the receiver tells
+	// the sender to skip the first chunk, then verify the full file arrives intact.
+	content := make([]byte, 3*protocol.FileChunkSize+512)
+	for i := range content {
+		content[i] = byte(i % 199)
+	}
+
+	srcFile, err := os.CreateTemp("", "goxfer-resume-src-*.bin")
+	if err != nil {
+		t.Fatalf("create src temp: %v", err)
+	}
+	srcFile.Write(content)
+	srcFile.Close()
+	srcPath := srcFile.Name()
+	defer os.Remove(srcPath)
+
+	destDir := t.TempDir()
+
+	// Compute the deterministic file ID the sender will use.
+	info, _ := os.Stat(srcPath)
+	fileID := deterministicFileID(srcPath, info.Size())
+
+	// Create a partial temp file containing the first chunk.
+	partialTmp, err := os.CreateTemp("", "goxfer-resume-tmp-*")
+	if err != nil {
+		t.Fatalf("create partial temp: %v", err)
+	}
+	partialTmp.Write(content[:protocol.FileChunkSize])
+	partialTmp.Close()
+	defer os.Remove(partialTmp.Name())
+
+	// Write a state file that says one chunk has been received.
+	state := &resumeState{
+		FileID:    fileID,
+		Name:      filepath.Base(srcPath),
+		Size:      info.Size(),
+		NextIndex: 1,
+		TempPath:  partialTmp.Name(),
+	}
+	saveResumeState(destDir, state)
+
+	// Run the transfer with resume=true on both sides.
+	senderSess, receiverSess := makePair(t)
+
+	sendErr := make(chan error, 1)
+	recvErr := make(chan error, 1)
+
+	go func() {
+		err := sendSingleFile(senderSess, srcPath, info, true)
+		senderSess.Close()
+		sendErr <- err
+	}()
+	go func() {
+		recvErr <- receiveFiles(receiverSess, destDir, true)
+	}()
+
+	if err := <-sendErr; err != nil {
+		t.Fatalf("send error: %v", err)
+	}
+	if err := <-recvErr; err != nil {
+		t.Fatalf("receive error: %v", err)
+	}
+
+	destPath := filepath.Join(destDir, filepath.Base(srcPath))
+	got, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("read received file: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("content mismatch after resume (got %d bytes, want %d)", len(got), len(content))
+	}
+
+	// State file must be cleaned up on success.
+	if _, err := os.Stat(resumeStatePath(destDir, fileID)); !os.IsNotExist(err) {
+		t.Fatal("state file should be deleted after successful transfer")
 	}
 }
 
