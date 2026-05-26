@@ -1,21 +1,23 @@
 
 # GoXfer: A Secure, Flexible File Transfer Tool
 
-**GoXfer** is a command-line tool written in Go for securely transferring files using various protocols such as SFTP, with support for parallel transfers, checksum verification, retries, and SSH key authentication. 
+**GoXfer** is a command-line tool written in Go for secure file transfers. The primary workflow is now direct peer-to-peer transfer with a simple `send` / `receive` flow, end-to-end encrypted sessions, checksum verification, and optional resume support. Traditional SFTP, SCP, and FTPS transfers are still available when you need them.
 
 ## Features
 
-- **Parallel File Transfers**: Speed up large transfers with concurrent file transfers.
-- **Checksum Verification**: Ensure file integrity after transfer using SHA256 checksum comparison.
-- **Retry Mechanism**: Automatically retry transfers in case of checksum mismatches.
-- **Passphrase-Protected SSH Key Support**: Authenticate with SSH private keys that are protected by passphrases.
-- **Customizable Transfer Options**: Configure the number of parallel transfers, retries, and more.
+- **Peer-to-Peer Transfers**: Share files directly with `goxfer send` and `goxfer receive`.
+- **End-to-End Encryption**: Establish secure sessions between sender and receiver.
+- **Checksum Verification**: Verify file integrity after transfer using SHA256 checksums.
+- **Resumable Transfers**: Restart interrupted single-file transfers with `--resume`.
+- **Alternate Transfer Modes**: Use SFTP, SCP, or FTPS when direct transfer is not the right fit.
 
 ## Table of Contents
 
 - [Installation](#installation)
-- [Usage](#usage)
-- [Options](#options)
+- [Quick Start](#quick-start)
+- [Peer-to-Peer Usage](#peer-to-peer-usage)
+- [Alternate Transfer Modes](#alternate-transfer-modes)
+- [Alternate Transfer Options](#alternate-transfer-options)
 - [Checksum Verification](#checksum-verification)
 - [Contributing](#contributing)
 - [License](#license)
@@ -41,23 +43,82 @@ go build -o goxfer cmd/main.go
 
 This will create a binary named `goxfer` in your project directory.
 
-## Usage
+## Quick Start
 
-To transfer files using GoXfer, you can use the following command:
+The new default flow is a sender sharing a generated address, then a receiver connecting to it.
+
+On the sending machine:
 
 ```bash
-./goxfer --protocol=sftp --host=localhost --port=2222 --username=transferuser --key=/path/to/private_key --srcPath=/path/to/local/files --destDir=/remote/destination/path --parallel=5 --retries=3
+./goxfer send ./file-transfer-container
 ```
 
-### Example
+GoXfer will print a `goxfer receive ...` command for the other side to run.
+
+On the receiving machine:
+
+```bash
+./goxfer receive bore.pub:49152 ./downloads
+```
+
+If you are transferring a single file and want interrupted transfers to resume cleanly, enable `--resume` on both sides:
+
+```bash
+./goxfer send --resume ./large-file.iso
+./goxfer receive --resume bore.pub:49152 ./downloads
+```
+
+## Peer-to-Peer Usage
+
+### Default Relay
+
+By default, `goxfer send` opens a temporary public address through `bore.pub` and waits for the receiver to connect.
+
+```bash
+./goxfer send ./path/to/file-or-directory
+```
+
+The receiver uses the printed address:
+
+```bash
+./goxfer receive <address> ./destination-directory
+```
+
+### Self-Hosted Relay
+
+If you want to avoid the default relay, you can run your own:
+
+```bash
+./goxfer relay --addr=:7835
+```
+
+Then send through that relay:
+
+```bash
+./goxfer send --relay=your-relay-host:7835 ./path/to/file
+```
+
+The receiver uses the printed command, which includes the relay address and session code.
+
+### Notes
+
+- `--resume` works for single-file transfers when both sender and receiver enable it.
+- Directory transfers are streamed as a `.tar.gz` archive and extracted on receipt.
+- Both sides print a session fingerprint so the transfer can be verified out of band if needed.
+
+## Alternate Transfer Modes
+
+GoXfer still supports protocol-based remote transfers for environments where peer-to-peer transfer is not practical.
+
+### SFTP Example
 
 ```bash
 ./goxfer --protocol=sftp --host=localhost --port=2222 --username=transferuser --key=/home/jonathan/.ssh/id_rsa --srcPath=./file-transfer-container --destDir=/home/transferuser/file-transfer-container --parallel=5 --retries=3
 ```
 
-This example transfers the files from the `./file-transfer-container` folder to the `/home/transferuser/file-transfer-container` folder on the remote server using **SFTP**.
+This transfers the files from `./file-transfer-container` to `/home/transferuser/file-transfer-container` on the remote server using SFTP.
 
-## Options
+## Alternate Transfer Options
 
 | Option            | Description                                                                                     | Default    |
 |-------------------|-------------------------------------------------------------------------------------------------|------------|
@@ -74,7 +135,10 @@ This example transfers the files from the `./file-transfer-container` folder to 
 
 ## Checksum Verification
 
-GoXfer automatically verifies file integrity by calculating the SHA256 checksum of both the local and remote files. If the checksums don't match, GoXfer will retry the transfer up to the specified number of retries (default: 3).
+GoXfer automatically verifies file integrity with SHA256 checksums.
+
+- In peer-to-peer mode, sender and receiver compare checksums before the transfer is considered successful.
+- In alternate transfer modes, GoXfer compares local and remote files and retries on mismatch up to the configured retry count.
 
 ## Dockerized SFTP Server for Testing
 
