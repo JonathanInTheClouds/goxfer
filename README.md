@@ -24,18 +24,53 @@
 
 ## Installation
 
-### Prerequisites
+### Install From Releases
+
+Download the archive for your platform from the [Releases](https://github.com/JonathanInTheClouds/goxfer/releases) page.
+
+#### macOS and Linux
+
+Extract the archive and move `goxfer` somewhere on your `PATH`, for example:
+
+```bash
+tar -xzf goxfer_0.1.0_linux_amd64.tar.gz
+chmod +x goxfer
+sudo mv goxfer /usr/local/bin/goxfer
+```
+
+Verify the install:
+
+```bash
+goxfer --help
+```
+
+#### Windows
+
+Download the matching `.zip` release asset, extract it, and place `goxfer.exe` somewhere convenient such as:
+
+- a tools directory you already use
+- a folder added to your `PATH`
+
+Then verify it from PowerShell:
+
+```powershell
+goxfer.exe --help
+```
+
+### Build From Source
+
+#### Prerequisites
 
 - **Go**: Make sure you have Go installed. You can install it from [here](https://golang.org/doc/install).
-  
-### Clone the Repository
+
+#### Clone the Repository
 
 ```bash
 git clone https://github.com/JonathanInTheClouds/goxfer.git
 cd goxfer
 ```
 
-### Build the Project
+#### Build the Project
 
 ```bash
 go build -o goxfer cmd/main.go
