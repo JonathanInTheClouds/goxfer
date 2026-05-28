@@ -88,9 +88,11 @@ func main() {
 func runSend(args []string) {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
 	relayAddr := fs.String("relay", "", "Self-hosted relay address (default: use bore.pub)")
+	listenAddr := fs.String("listen", "", "Direct mode listen address, e.g. :9000 or 0.0.0.0:9000")
+	publicAddr := fs.String("public", "", "Public direct-mode address receivers should dial, e.g. host.example.com:9000")
 	resume := fs.Bool("resume", false, "Enable resumable transfer (both sides must use this flag)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: goxfer send [--relay=host:port] [--resume] <srcPath>")
+		fmt.Fprintln(os.Stderr, "Usage: goxfer send [--relay=host:port] [--listen=addr --public=host:port] [--resume] <srcPath>")
 		fs.PrintDefaults()
 	}
 	fs.Parse(args)
@@ -98,7 +100,15 @@ func runSend(args []string) {
 		fs.Usage()
 		os.Exit(1)
 	}
-	if err := transfer.P2PSend(fs.Arg(0), *relayAddr, *resume); err != nil {
+	if *relayAddr != "" && *listenAddr != "" {
+		fmt.Fprintln(os.Stderr, "Error: --relay and --listen cannot be used together")
+		os.Exit(1)
+	}
+	if *publicAddr != "" && *listenAddr == "" {
+		fmt.Fprintln(os.Stderr, "Error: --public requires --listen")
+		os.Exit(1)
+	}
+	if err := transfer.P2PSend(fs.Arg(0), *relayAddr, *listenAddr, *publicAddr, *resume); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

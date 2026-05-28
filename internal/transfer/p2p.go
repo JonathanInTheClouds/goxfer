@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,9 +24,10 @@ import (
 	"github.com/schollz/progressbar/v3"
 )
 
-// P2PSend sends srcPath to a peer. relayAddr="" uses bore.pub; otherwise uses self-hosted relay.
+// P2PSend sends srcPath to a peer. relayAddr="" and listenAddr="" uses bore.pub;
+// relayAddr uses a self-hosted relay; listenAddr accepts a direct receiver connection.
 // When resume=true the file ID is deterministic so a retry can pick up where it left off.
-func P2PSend(srcPath, relayAddr string, resume bool) error {
+func P2PSend(srcPath, relayAddr, listenAddr, publicAddr string, resume bool) error {
 	identity, err := crypto.GenerateIdentity()
 	if err != nil {
 		return fmt.Errorf("generate identity: %w", err)
@@ -33,7 +35,28 @@ func P2PSend(srcPath, relayAddr string, resume bool) error {
 
 	var sess *session.SecureSession
 
-	if relayAddr == "" {
+	if listenAddr != "" {
+		listener, actualAddr, err := bindDirectListener(listenAddr, identity)
+		if err != nil {
+			return err
+		}
+		defer listener.Close()
+
+		receiverAddr := publicAddr
+		if receiverAddr == "" {
+			receiverAddr = directReceiverAddr(actualAddr)
+		}
+
+		printReceiverCommand("goxfer receive", resume, "", receiverAddr)
+		fmt.Printf("Your fingerprint : %s\n", identity.Fingerprint())
+		fmt.Printf("Listening directly on %s\n", actualAddr)
+		fmt.Println("\nWaiting for receiver to connect...")
+
+		sess, err = listener.Accept()
+		if err != nil {
+			return fmt.Errorf("accept connection: %w", err)
+		}
+	} else if relayAddr == "" {
 		listener, localPort, err := session.Bind(":0", identity)
 		if err != nil {
 			return fmt.Errorf("bind local listener: %w", err)
@@ -88,6 +111,35 @@ func P2PSend(srcPath, relayAddr string, resume bool) error {
 		return sendDirectory(sess, srcPath)
 	}
 	return sendSingleFile(sess, srcPath, info, resume)
+}
+
+func bindDirectListener(addr string, identity *crypto.Identity) (*session.Listener, string, error) {
+	listener, port, err := session.Bind(addr, identity)
+	if err != nil {
+		return nil, "", fmt.Errorf("bind direct listener: %w", err)
+	}
+
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		listener.Close()
+		return nil, "", fmt.Errorf("direct listen address must be host:port: %w", err)
+	}
+	if host == "" {
+		host = "0.0.0.0"
+	}
+
+	return listener, net.JoinHostPort(host, fmt.Sprint(port)), nil
+}
+
+func directReceiverAddr(listenAddr string) string {
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return listenAddr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "<sender-public-host>"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // P2PReceive connects to a sender and downloads files into destDir.

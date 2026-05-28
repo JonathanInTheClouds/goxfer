@@ -119,6 +119,27 @@ The receiver uses the printed address:
 ./goxfer receive <address> ./destination-directory
 ```
 
+### Direct Internet Transfer
+
+If the sending machine can accept inbound TCP connections directly, you can skip any tunnel or relay. Open or forward a TCP port to the sender, then listen on that port:
+
+```bash
+./goxfer send --listen=:9000 --public=your-public-host:9000 ./path/to/file
+```
+
+The receiver uses the printed command:
+
+```bash
+./goxfer receive your-public-host:9000 ./destination-directory
+```
+
+Use `--resume` on both sides for resumable single-file transfers:
+
+```bash
+./goxfer send --listen=:9000 --public=your-public-host:9000 --resume ./large-file.iso
+./goxfer receive --resume your-public-host:9000 ./downloads
+```
+
 ### Self-Hosted Relay
 
 If you want to avoid the default relay, you can run your own:

@@ -57,6 +57,38 @@ func makePair(t *testing.T) (senderSess, receiverSess *session.SecureSession) {
 	return r.sess, recvSess
 }
 
+func TestDirectReceiverAddr(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "wildcard ipv4",
+			in:   "0.0.0.0:9000",
+			want: "<sender-public-host>:9000",
+		},
+		{
+			name: "wildcard ipv6",
+			in:   "[::]:9000",
+			want: "<sender-public-host>:9000",
+		},
+		{
+			name: "specific host",
+			in:   "example.com:9000",
+			want: "example.com:9000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := directReceiverAddr(tt.in); got != tt.want {
+				t.Fatalf("directReceiverAddr(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestP2P_SingleFile(t *testing.T) {
 	senderSess, receiverSess := makePair(t)
 
@@ -167,9 +199,9 @@ func TestP2P_Directory(t *testing.T) {
 
 	srcDir := t.TempDir()
 	files := map[string]string{
-		"readme.txt":      "top-level readme",
-		"sub/data.bin":    "nested binary data",
-		"sub/deep/a.txt":  "deeply nested file",
+		"readme.txt":     "top-level readme",
+		"sub/data.bin":   "nested binary data",
+		"sub/deep/a.txt": "deeply nested file",
 	}
 	for name, content := range files {
 		path := filepath.Join(srcDir, name)
